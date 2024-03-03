@@ -1,4 +1,5 @@
 from comfy.model_management import InterruptProcessingException
+from comfy.model_patcher import ModelPatcher
 import torch
 import os
 import hashlib
@@ -7,7 +8,16 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import torchvision.transforms as transforms
+import json
 
+class AnyType(str):
+    def __ne__(self, __value: object) -> bool:
+        return False
+    
+class PackedAxisItem:
+    def __init__(self, label, value):
+        self.label = label
+        self.value = value
 
 class FeedbackNode:
     def __init__(self):
@@ -61,25 +71,6 @@ class FeedbackNode:
         image_tensor = image_tensor.permute(1, 2, 0)
 
         return image_tensor
-
-
-class TextListIndex(FeedbackNode):
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "list": ("LIST",),
-                "index": ("INT", {"default": 0}),
-            },
-        }
-
-    RETURN_TYPES = "STRING",
-    FUNCTION = "run"
-    CATEGORY = "QQNodes/List"
-
-    def run(self, list, index):
-        return (list[index % len(list)],)
-
 
 class ImageAccumulatorStart(FeedbackNode):
 
@@ -142,21 +133,21 @@ class ImageAccumulatorEnd(FeedbackNode):
             return (images,)
 
 
-class NumberList:
+class AnyList:
 
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "number_a": ("NUMBER", {"forceInput": True}),
+                "input_a": (AnyType("*"), {"forceInput": True}),
             },
             "optional": {
-                "number_b": ("NUMBER", {"forceInput": True}),
-                "number_c": ("NUMBER", {"forceInput": True}),
-                "number_d": ("NUMBER", {"forceInput": True}),
-                "number_e": ("NUMBER", {"forceInput": True}),
-                "number_f": ("NUMBER", {"forceInput": True}),
-                "number_g": ("NUMBER", {"forceInput": True}),
+                "input_b": (AnyType("*"), {"forceInput": True}),
+                "input_c": (AnyType("*"), {"forceInput": True}),
+                "input_d": (AnyType("*"), {"forceInput": True}),
+                "input_e": (AnyType("*"), {"forceInput": True}),
+                "input_f": (AnyType("*"), {"forceInput": True}),
+                "input_g": (AnyType("*"), {"forceInput": True}),
             }
         }
     RETURN_TYPES = ("LIST",)
@@ -164,83 +155,100 @@ class NumberList:
 
     CATEGORY = "QQNodes/List"
 
-    def run(self, number_a, number_b=None, number_c=None, number_d=None, number_e=None, number_f=None, number_g=None):
+    def run(self, input_a, input_b=None, input_c=None, input_d=None, input_e=None, input_f=None, input_g=None):
 
-        number_list = [number_a,]
+        input_list = [input_a,]
 
-        if number_b:
-            number_list.append(number_b)
-        if number_c:
-            number_list.append(number_c)
-        if number_d:
-            number_list.append(number_d)
-        if number_e:
-            number_list.append(number_e)
-        if number_f:
-            number_list.append(number_f)
-        if number_g:
-            number_list.append(number_g)
+        if input_b:
+            input_list.append(input_b)
+        if input_c:
+            input_list.append(input_c)
+        if input_d:
+            input_list.append(input_d)
+        if input_e:
+            input_list.append(input_e)
+        if input_f:
+            input_list.append(input_f)
+        if input_g:
+            input_list.append(input_g)
 
-        return (number_list,)
-
-
-class NumberListIndex:
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "list": ("LIST",),
-                "index": ("INT", {"default": 0}),
-            },
-        }
-
-    RETURN_TYPES = "NUMBER",
-    FUNCTION = "run"
-    CATEGORY = "QQNodes/List"
-
-    def run(self, list, index):
-        return (list[index % len(list)],)
-
-
-class NumberListIterator:
+        return (input_list,)
+    
+class AnyListIterator:
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
                 "counter": ("INT", {"default": 0}),
                 "list": ("LIST",),
-                "repeats": ("INT", {"default": 1, "min": 1}),
+            }
+        }
+
+    RETURN_TYPES = "AXIS_VALUE",
+    FUNCTION = "run"
+    CATEGORY = "QQNodes/List"
+
+    def run(self, counter, list):
+        return (list[counter % len(list)],)
+    
+class AxisPack: 
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "input_a": (AnyType("*"), {"forceInput": True}),
             },
             "optional": {
+                "input_b": (AnyType("*"), {"forceInput": True}),
+                "input_c": (AnyType("*"), {"forceInput": True}),
+                "input_d": (AnyType("*"), {"forceInput": True}),
+                "input_e": (AnyType("*"), {"forceInput": True}),
+                "input_f": (AnyType("*"), {"forceInput": True}),
+                "input_g": (AnyType("*"), {"forceInput": True}),
+                "label": ("STRING", {"forceInput": False}),
             }
         }
-
-    RETURN_TYPES = "NUMBER",
+    RETURN_TYPES = ("PACK",)
     FUNCTION = "run"
-    CATEGORY = "QQNodes/List"
 
-    def run(self, counter, list, repeats):
-        return (list[counter // repeats % len(list)],)
+    CATEGORY = "QQNodes/XYGrid Axis"
 
+    def run(self, input_a, input_b=None, input_c=None, input_d=None, input_e=None, input_f=None, input_g=None, label=""):
 
-class TextListIterator:
+        input_list = [input_a,]
+
+        if input_b:
+            input_list.append(input_b)
+        if input_c:
+            input_list.append(input_c)
+        if input_d:
+            input_list.append(input_d)
+        if input_e:
+            input_list.append(input_e)
+        if input_f:
+            input_list.append(input_f)
+        if input_g:
+            input_list.append(input_g)
+        
+        return (PackedAxisItem(label, input_list),)
+    
+class AxisUnpack:
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "counter": ("INT", {"default": 0}),
-                "list": ("LIST",),
-                "repeats": ("INT", {"default": 1, "min": 1}),
-            }
+                "axis": ("AXIS_VALUE",),
+            },
         }
-
-    RETURN_TYPES = "STRING",
+    RETURN_TYPES = tuple("AXIS_VALUE" for _ in range(7))
+    RETURN_NAMES = tuple("output_" + chr(i) for i in range(ord('a'), ord('a') + 7))
     FUNCTION = "run"
-    CATEGORY = "QQNodes/List"
 
-    def run(self, counter, list, repeats):
-        return (list[counter // repeats % len(list)],)
+    CATEGORY = "QQNodes/XYGrid Axis"
 
+    def run(self, axis):
+        padding = [None, ] * (7 - len(axis.value))
+        return tuple(axis.value + padding)
 
 class LoadLinesFromTextFile:
     @classmethod
@@ -288,20 +296,39 @@ class LoadLinesFromTextFile:
     def IS_CHANGED(cls, file):
         file_path = folder_paths.get_annotated_filepath(file)
         return cls.getFileHash(file_path)
+    
+class TextSplitter:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "text": ("STRING", {"default": ""}),
+                "delimiter": ("STRING", {"default": ","}),
+            }
+        }
+
+    RETURN_TYPES = ("LIST",)
+    FUNCTION = "run"
+    CATEGORY = "QQNodes/Text"
+
+    def run(self, text, delimiter):
+        return (text.split(delimiter),)
 
 
-class XYGridHelper(FeedbackNode):
+class XYGridHelper():
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
                 "row_list": ("LIST",),
                 "column_list": ("LIST",),
-                "index": ("INT", {"default": 0}),
             },
             "optional": {
                 "row_prefix": ("STRING", {"default": ""}),
                 "column_prefix": ("STRING", {"default": ""}),
+                "page_size": ("INT", {"default": 10}),
+                "label_length": ("INT", {"default": 50}),
+                "index": ("QQINDEX", {} )
             }
         }
 
@@ -316,28 +343,31 @@ class XYGridHelper(FeedbackNode):
     def IS_CHANGED(cls, **kwargs):
         return float("NaN")
 
-    def run(self, row_list, column_list, index, row_prefix, column_prefix):
-        if not self.validate_axis_types(row_list):
-            raise Exception(
-                "Invalid type for row_list: {}".format(type(row_list[0])))
-        elif not self.validate_axis_types(column_list):
-            raise Exception(
-                "Invalid type for column_list: {}".format(type(column_list[0])))
-
+    def run(self, row_list, column_list, row_prefix, column_prefix, page_size, label_length, index):
         total_grid_images = len(row_list) * len(column_list)
-        ui = self.get_feedback(
-            f"Image {(index % total_grid_images) + 1} of {total_grid_images}")
-        x_repeate = len(column_list)
-        return dict({"result": (
-            row_list[index // x_repeate % len(row_list)],
-            column_list[index % len(column_list)],
-            ";".join([self.truncate_string(self.format_prefix(row_prefix, str(x))) for x in row_list]),
-            ";".join([self.truncate_string(self.format_prefix(column_prefix, str(y))) for y in column_list]),
+        adjusted_index = index % total_grid_images
+
+        row_index = adjusted_index // len(column_list) % len(row_list)
+        page_index = row_index // page_size
+        images_pr_page = page_size * len(column_list)
+        row_annotation = ";".join([self.insert_newline_on_word_boundaries(self.format_prefix(row_prefix, self.get_label(x)), label_length) for x in row_list[page_index * page_size : (page_index + 1) * page_size]])
+        column_annotation = ";".join([self.insert_newline_on_word_boundaries(self.format_prefix(column_prefix, self.get_label(y)), label_length) for y in column_list])
+        return {"result": (
+            row_list[row_index],
+            column_list[adjusted_index % len(column_list)],
+            row_annotation,
+            column_annotation,  
             len(column_list),
-            len(row_list) * len(column_list),
-            index % total_grid_images
-        )}, **ui)
+            min(images_pr_page, total_grid_images - page_index * page_size),
+            adjusted_index % images_pr_page
+        ), "ui": {"total_images": [total_grid_images]}}
     
+    def get_label(self, item):
+        if isinstance(item, PackedAxisItem):
+            return item.label
+        else:
+            return str(item)
+        
     def format_prefix(self, prefix, text):
         if prefix:
             return f"{prefix}: {text}"
@@ -349,62 +379,34 @@ class XYGridHelper(FeedbackNode):
             return input_string[:length - 3] + '...'
         else:
             return input_string
+    
+    def insert_newline_on_word_boundaries(self, input_string, length=50):
+        # Initialize the result string and the current index
+        result = ""
+        current_index = 0
 
-    def validate_axis_types(self, list):
-        for i in list:
-            if not isinstance(i, (str, int, float)):
-                return False
-        return True
+        while current_index < len(input_string):
+            # If the remaining string is shorter than the length, add it to the result and break
+            if current_index + length >= len(input_string):
+                result += input_string[current_index:]
+                break
+            
+            # Find the nearest space before the next cut-off point
+            next_cutoff = current_index + length
+            space_index = input_string.rfind(' ', current_index, next_cutoff)
+            
+            # If a space is found, and it's not just the first character (avoiding leading spaces)
+            if space_index > current_index:
+                # Add the substring up to the space and a newline
+                result += input_string[current_index:space_index] + '\n'
+                # Update the current index to the character after the space
+                current_index = space_index + 1
+            else:
+                # If no suitable space is found, just cut at the specified length
+                result += input_string[current_index:next_cutoff] + '\n'
+                current_index = next_cutoff
 
-
-class AxisToString:
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "axis": ("AXIS_VALUE", {}),
-            }
-        }
-
-    RETURN_TYPES = ("STRING",)
-    FUNCTION = "run"
-    CATEGORY = "QQNodes/XYGrid"
-
-    def run(self, axis):
-        return (axis,)
-
-
-class AxisToInt:
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "axis": ("AXIS_VALUE",),
-            }
-        }
-
-    RETURN_TYPES = ("INT",)
-    FUNCTION = "run"
-    CATEGORY = "QQNodes/XYGrid"
-
-    def run(self, axis):
-        return (axis,)
-
-class AxisToFloat:
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "axis": ("AXIS_VALUE",),
-            }
-        }
-
-    RETURN_TYPES = ("FLOAT",)
-    FUNCTION = "run"
-    CATEGORY = "QQNodes/XYGrid"
-
-    def run(self, axis):
-        return (axis,)
+        return result
 
 
 class SliceList:
@@ -424,20 +426,77 @@ class SliceList:
 
     def run(self, list, start, end):
         return (list[start:end],)
+    
+class AnyToAny:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "any": (AnyType("*"),),
+            }
+        }
+
+    RETURN_TYPES = (AnyType("*"),)
+    FUNCTION = "run"
+    CATEGORY = "QQNodes/Utils"
+
+    def run(self, any):
+        return (any,)
+    
+class AxisBase:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "axis": ("AXIS_VALUE",),
+            }
+        }
+    
+    FUNCTION = "run"
+    CATEGORY = "QQNodes/XYGrid Axis"
+
+    def run(self, axis):
+        return (axis,)
+    
+class AxisToAny(AxisBase):
+    RETURN_TYPES = (AnyType("*"),)
+
+def create_axis_class(name):
+    class_dict = {
+        'RETURN_TYPES': (name,),
+    }
+    
+    return type(f"AxisTo{name}", (AxisBase,), class_dict)
+
+def load_axis_config_and_create_classes(node_map, config_file):
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    config_path = os.path.join(dir_path, config_file)
+    with open(config_path, 'r') as f:
+        config = json.load(f)
+
+    if not isinstance(config, list):
+        raise ValueError("Axis config must be a json list")
+    
+    for axis_config in config:
+        cls = create_axis_class(axis_config)
+        globals()[axis_config] = cls
+        node_map["Axis To " + axis_config] = cls
 
 
 NODE_CLASS_MAPPINGS = {
-    "Number List": NumberList,
-    "Text List Index": TextListIndex,
-    "Number List Index": NumberListIndex,
+    "Any List": AnyList,
+    "Any List Iterator": AnyListIterator,
     "Image Accumulator Start": ImageAccumulatorStart,
     "Image Accumulator End": ImageAccumulatorEnd,
-    "Number List Iterator": NumberListIterator,
-    "Text List Iterator": TextListIterator,
     "Load Lines From Text File": LoadLinesFromTextFile,
     "XY Grid Helper": XYGridHelper,
-    "Axis To String": AxisToString,
-    "Axis To Int": AxisToInt,
-    "Axis To Float": AxisToFloat,
     "Slice List": SliceList,
+    "Axis Pack": AxisPack,
+    "Axis Unpack": AxisUnpack,
+    "Text Splitter": TextSplitter,
+    "Any To Any": AnyToAny,
+    "Axis To Any": AxisToAny
 }
+
+load_axis_config_and_create_classes(NODE_CLASS_MAPPINGS, "axis-config.json")
+load_axis_config_and_create_classes(NODE_CLASS_MAPPINGS, "custom-axis-config.json")
